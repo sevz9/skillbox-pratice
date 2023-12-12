@@ -1,0 +1,13 @@
+# Ignore everything in this directory
+*
+# Except this file
+!.gitignore
+# And except this
+!README.md
+!pyproject.toml
+!pixi.toml
+!pixi.lock
+!.pre-commit-config.yaml
+
+!/reports/
+!/models_metrics/
