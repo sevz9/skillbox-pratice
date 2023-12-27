@@ -1,3 +1,3 @@
 # User comment Classification
 
-multiclass classification using rubert-tiny
+user comments multiclass classification

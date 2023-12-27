@@ -1,0 +1,319 @@
+---
+title: Класификация комментариев пользователей
+format:
+  html:
+    page-layout: full # Тип расположения контента на странице
+    code-fold: true # Сворачивание кода в отдельные блоки
+    code-summary: Show the code # Действие со свернутыми блоками кода
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    toc: true # Добавить содержание
+    toc-depth: 4 # Максимальная глубина вложений в содержании
+    toc-title: Содержание # Заголовок содержания
+    toc-location: left # Местоположение содержания
+execute:
+  enabled: true
+  keep-ipynb: true
+jupyter: python3
+---
+
+```{python}
+import os
+import sys
+from collections import Counter
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+#from torchmetrics import F1Score, Accuracy
+from transformers import BertTokenizer, BertForSequenceClassification, get_cosine_schedule_with_warmup, AdamW
+
+from sklearn.model_selection import train_test_split
+import plotly.figure_factory as ff
+from matplotlib import pyplot as plt
+from sklearn.metrics import (
+    f1_score,
+    roc_auc_score,
+    accuracy_score,
+    multilabel_confusion_matrix,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+    classification_report,
+    precision_score,
+    recall_score,
+)
+```
+
+Заведем глобальные переменные
+
+```{python}
+MODEL_ID = 1
+TEST_SIZE = 0.2
+VAL_SIZE = 0.2
+```
+
+Загрузим данные
+
+```{python}
+df = pd.read_csv(r"C:\Users\vsevo\MKN\skillbox_nlp-vsevolod-lavrov\data\practice_cleaned.csv")
+df
+```
+
+Базовая обработка данных 
+
+```{python}
+def process_data(df):
+    df = df[(df['Категория'] != "Качество материалов") & (df['Категория'] != "Интерфейс платформы") & (df['Категория'] != "Общение с куратором")]
+    df = df[['Категория', 'Комментарий']].dropna()
+    rename = {
+        'Категория': 'category',
+        'Комментарий': 'text'
+    }
+    df = df.rename(columns=rename)
+    return df
+
+df = process_data(df)
+
+train, test = train_test_split(df, test_size=TEST_SIZE, random_state=1337)
+
+df
+```
+
+Кастомный датасет
+
+```{python}
+CLASSES = list(df['category'].unique())
+labels = dict(zip(CLASSES, range(len(CLASSES))))
+
+class CustomDataset(torch.utils.data.Dataset):
+    def __init__(self, df, tokenizer):
+       
+        self.labels = [labels[label] for label in df['category']]
+   
+            
+        self.texts = [tokenizer(text, 
+                               padding='max_length', max_length = 512, truncation=True,
+                                return_tensors="pt") for text in df['text']]
+
+    def classes(self):
+        return self.labels
+
+    def __len__(self):
+      
+        return len(self.labels)
+       
+
+    def get_batch_labels(self, idx):
+        return np.array(self.labels[idx])
+    
+    def get_batch_oid(self, idx):
+        return np.array(self.oid[idx])
+
+    def get_batch_texts(self, idx):
+        return self.texts[idx]
+
+    def __getitem__(self, idx):
+        batch_texts = self.get_batch_texts(idx)
+        batch_y = self.get_batch_labels(idx)
+        return batch_texts, batch_y
+       
+```
+
+## Подготовка модели и ее Обучение
+
+Я пытался организовать обучение с помощью фреймворков от `huggingface` и `PyTorch Lightning`, но они почему-то обучаются гораздо дольше, чем приведенная ниже реализация на голом торче
+
+```{python}
+class BertClassifier(nn.Module):
+    def __init__(self, model_path, tokenizer_path, data, n_classes=len(CLASSES), epochs=4):
+        super().__init__()
+        self.model = BertForSequenceClassification.from_pretrained(model_path)
+        self.tokenizer = BertTokenizer.from_pretrained(tokenizer_path)
+        self.data = data
+        self.device = torch.device('cuda')
+        self.max_len = 512
+        self.epochs = epochs
+        self.out_features = self.model.bert.encoder.layer[1].output.dense.out_features
+        self.model.classifier = torch.nn.Linear(self.out_features, n_classes).cuda()
+        self.model = self.model.cuda()
+
+    
+    def preparation(self):
+        self.df_train, self.df_val = train_test_split(self.data, test_size=VAL_SIZE, random_state=1337)
+        
+        self.train = CustomDataset(self.df_train, self.tokenizer)
+        self.val = CustomDataset(self.df_val, self.tokenizer)
+        
+        self.train_dataloader = torch.utils.data.DataLoader(self.train, batch_size=4, shuffle=True)
+        self.val_dataloader = torch.utils.data.DataLoader(self.val, batch_size=4)
+    
+       
+        self.optimizer = AdamW(self.model.parameters(), lr=2e-5, correct_bias=False)
+        self.scheduler = get_cosine_schedule_with_warmup(
+                self.optimizer,
+                num_warmup_steps=0,
+                num_training_steps=len(self.train_dataloader) * self.epochs
+            )
+        self.loss_fn = torch.nn.CrossEntropyLoss().cuda()
+            
+    def fit(self):
+        self.model = self.model.train()
+        
+        for epoch_num in range(self.epochs):
+            total_acc_train = 0
+            total_loss_train = 0
+            for train_input, train_label in tqdm(self.train_dataloader):
+                train_label = train_label.cuda()
+                mask = train_input['attention_mask'].cuda()
+                input_id = train_input['input_ids'].squeeze(1).cuda()
+                output = self.model(input_id.cuda(), mask.cuda())
+
+                batch_loss = self.loss_fn(output[0], train_label.long())
+                total_loss_train += batch_loss.item()
+
+                acc = (output[0].argmax(dim=1) == train_label).sum().item()
+                total_acc_train += acc
+
+                self.model.zero_grad()
+                batch_loss.backward()
+                self.optimizer.step()
+                self.scheduler.step()
+            total_acc_val, total_loss_val = self.eval()
+           
+            print(
+            f'Epochs: {epoch_num + 1} | Train Loss: {total_loss_train / len(self.df_train): .3f} \
+            | Train Accuracy: {total_acc_train / len(self.df_train): .3f} \
+            | Val Loss: {total_loss_val / len(self.df_val): .3f} \
+            | Val Accuracy: {total_acc_val / len(self.df_val): .3f}')
+
+            
+            os.makedirs('checkpoint', exist_ok=True)
+            os.makedirs('checkpoint/model_{MODEL_ID}', exist_ok=True)
+            torch.save(self.model, f'checkpoint/model_{MODEL_ID}/epoch_{epoch_num}.pt')
+        os.makedirs('models', exist_ok=True)
+        torch.save(self.model, f'models/model_{MODEL_ID}.pt')
+
+        return total_acc_train, total_loss_train
+    
+    def eval(self):
+        self.model = self.model.eval()
+        total_acc_val = 0
+        total_loss_val = 0
+
+        with torch.no_grad():
+            for val_input, val_label in tqdm(self.val_dataloader):
+                val_label = val_label.cuda()
+                mask = val_input['attention_mask'].cuda()
+                input_id = val_input['input_ids'].squeeze(1).cuda() 
+
+                output = self.model(input_id.to('cuda'), mask.to('cuda'))
+
+                batch_loss = self.loss_fn(output[0], val_label.long())
+                total_loss_val += batch_loss.item()
+
+                acc = (output[0].argmax(dim=1) == val_label).sum().item()
+                total_acc_val += acc
+            
+        return total_acc_val, total_loss_val
+    
+```
+
+Подготовка Модели 
+
+```{python}
+model_path = 'cointegrated/rubert-tiny'
+tokenizer_path = 'cointegrated/rubert-tiny'
+
+bert_tiny = BertClassifier(model_path, tokenizer_path, train, epochs=4)
+tokenizer = BertTokenizer.from_pretrained(tokenizer_path)
+bert_tiny.preparation()
+```
+
+Обучение Модели
+
+```{python}
+bert_tiny.fit()
+```
+
+## Валидация
+
+```{python}
+test_dataset = CustomDataset(test, tokenizer)
+test_dataloader = DataLoader(test_dataset, batch_size=32)
+
+def pred_by_logits(logits: torch.Tensor) -> np.ndarray:
+        """Helper function for predictions calculating.
+
+        Args:
+            logits (torch.Tensor): model's raw output
+
+        Returns:
+            np.ndarray: array with predicted class id.
+        """
+        s = torch.nn.Softmax()
+        probs = s(torch.tensor(logits))
+        return np.argmax(probs)
+
+def predict(test_dataloader):
+    preds_logits = torch.tensor([])
+    targets = torch.tensor([])
+
+    with torch.no_grad():
+        for val_input, val_label in tqdm(test_dataloader):
+            mask = val_input['attention_mask'].cuda()
+            input_id = val_input['input_ids'].squeeze(1).cuda()
+            output = bert_tiny.model(input_id, mask)[0].cpu()
+            preds_logits = torch.cat((preds_logits, output))
+            targets = torch.cat((targets, val_label.long().cpu()))
+    
+    preds = np.apply_along_axis(pred_by_logits, 1, preds_logits)
+    return preds, targets
+
+preds, targets = predict(test_dataloader)
+```
+
+Основные метрики класификации и confusion_matrix
+
+```{python}
+cr = classification_report(targets, preds, target_names=CLASSES, output_dict=True)
+cr = pd.DataFrame(cr).T
+os.makedirs(f'..\models_metrics', exist_ok=True)
+os.makedirs(f'..\models_metrics\model_{MODEL_ID}', exist_ok=True)
+cr.to_csv(f"..\models_metrics\model_{MODEL_ID}\classification_report.csv", index=False)
+print(cr)
+```
+
+```{python}
+x, y = CLASSES, list(reversed(CLASSES))
+
+cm = confusion_matrix(targets, preds)
+cm_display = ConfusionMatrixDisplay(confusion_matrix =cm, display_labels=CLASSES)
+
+
+cm_display.plot()
+os.makedirs(f'../models_metrics/model_{MODEL_ID}', exist_ok=True)
+np.save(f"../models_metrics/model_{MODEL_ID}/confusion_matrix", cm)
+plt.savefig(f"../models_metrics/model_{MODEL_ID}/model_{MODEL_ID}_cm.png")
+plt.show()
+```
+
+## Выводы
+
+Из метрик можно сделать вывод, что мы плохо классифицируем класс "Лонгрид", причем вязано не только с тем, что представителей этого класса в обучаещей выборке было относительно мало, так как категорию "Тест" мы класификацируем лучше, хотя предтавителей этого класса еще меньше. Из confusion_matrix видно, что маленькое значение метрик связано с тем, что маша модель путает "Лонгрид" и "Видео"
+
+## Планы
+
+Во-первых надо попытаться разобраться с тем, что наша модель класификацируеет "Лонгрид" как "Видео"
+
+Поиграться с балансировкой классов
+
+Сделать базовую обработку текстов
+
+
+
+

@@ -1,0 +1,275 @@
+---
+title: Класификация комментариев пользователей
+format:
+  html:
+    page-layout: full # Тип расположения контента на странице
+    code-fold: true # Сворачивание кода в отдельные блоки
+    code-summary: Show the code # Действие со свернутыми блоками кода
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    toc: true # Добавить содержание
+    toc-depth: 4 # Максимальная глубина вложений в содержании
+    toc-title: Содержание # Заголовок содержания
+    toc-location: left # Местоположение содержания
+execute:
+  enabled: true
+  keep-ipynb: true
+jupyter: python3
+---
+
+```{python}
+
+import os
+import sys
+from collections import Counter
+from PIL import Image
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+#from torchmetrics import F1Score, Accuracy
+from transformers import BertTokenizer, BertForSequenceClassification, get_cosine_schedule_with_warmup, AdamW
+from torch.utils.data.sampler import WeightedRandomSampler
+
+from sklearn.model_selection import train_test_split
+import plotly.figure_factory as ff
+from matplotlib import pyplot as plt
+from sklearn.metrics import (
+    f1_score,
+    roc_auc_score,
+    accuracy_score,
+    multilabel_confusion_matrix,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+    classification_report,
+    precision_score,
+    recall_score,
+)
+
+import re
+
+import nltk
+from nltk.corpus import stopwords
+import string
+
+
+```
+
+# Обработка текста
+
+Добавим базовую обработку текста:
+
+Уберем эмоджи, вообще эмоджи несут смыловую нагрузку и порой весьма значительную, но в нашем случаем при использовании маленькой модели, обученной на отноительно небольшом корпусе текстов, в которых если и встречались эмоджи, то небольшое количество, наличие эмоджи точно не улучшит ситуацию.
+
+```{python}
+def remove_emoji(inputString):
+    emoji_pattern = re.compile("["
+    u"\U0001F600-\U0001F64F" # emoticons
+    u"\U0001F300-\U0001F5FF" # symbols & pictographs
+    u"\U0001F680-\U0001F6FF" # transport & map symbols
+    u"\U0001F1E0-\U0001F1FF" # flags (iOS)
+    u"\U00002702-\U000027B0"
+    u"\U000024C2-\U0001F251"
+    u"\U0001f926-\U0001f937"
+    u'\U00010000-\U0010ffff'
+    u"\u200d"
+    u"\u2640-\u2642"
+    u"\u2600-\u2B55"
+    u"\u23cf"
+    u"\u23e9"
+    u"\u231a"
+    u"\u3030"
+    u"\ufe0f"
+    u"\u2069"
+    u"\u2066"
+    u"\u200c"
+    u"\u2068"
+    u"\u2067"
+    "]+", flags=re.UNICODE)
+    return emoji_pattern.sub(r'', inputString)
+```
+
+Также уберем стоп-слова
+
+
+```{python}
+
+nltk.download("stopwords")
+def remove_rus_stopwords_func(text):
+    '''
+    Removes Stop Words (also capitalized) from a string, if present
+    
+    Args:
+        text (str): String to which the function is to be applied, string
+    
+    Returns:
+        Clean string without Stop Words
+    ''' 
+    
+
+   
+    # check in lowercase 
+    t = [token for token in text.split() if not token in set(stopwords.words("russian"))]
+    text = ' '.join(t)    
+    return text
+
+```
+
+В данных встерчается довольно большое количество одинаковых слов, с разными метками классов. Такое нас не устраивает
+
+```{python}
+
+df = pd.read_csv("../data/practice_cleaned.csv")
+df.Комментарий.value_counts()
+
+```
+
+А после обработки, их танет только больше
+
+Поэтому удалим дупликаты.
+
+```{python}
+
+# df.drop_duplicates(inplace=True, subset=['Комментарий'])
+
+```
+
+После вышеперечисленной обработки, остаются безсмыленные комментарии, хотелось бы уметь находить такие и удалять. Пока что ограничемся удалением комментариев, содержащих одно слово
+
+```{python}
+
+df[df.Комментарий.apply(lambda x: len(x.split())) == 1].Комментарий.value_counts()
+```
+
+```{python}
+
+# df = df[df.Комментарий.apply(lambda x: len(x.split())) > 1]
+
+```
+
+
+Итого наша обработка данных выглядит сейчас вот так:
+
+```{python}
+
+def process_data(df):
+    df = df[(df['Категория'] != "Качество материалов") & (df['Категория'] != "Интерфейс платформы") & (df['Категория'] != "Общение с куратором")]
+    
+    df = df[['Категория', 'Комментарий']].dropna()
+
+    df['Комментарий'] = df['Комментарий'].apply(lambda text: remove_rus_stopwords_func(text))
+
+    df['Комментарий'] = df['Комментарий'].apply(lambda text: remove_emoji(text))
+
+    df = df[df.Комментарий.apply(lambda x: len(x.split())) > 1]
+
+    df.drop_duplicates(inplace=True, subset=['Комментарий'])
+    
+    rename = {
+        'Категория': 'category',
+        'Комментарий': 'text'
+    }
+    df = df.rename(columns=rename)
+    return df
+
+
+
+```
+
+
+```{python}
+pd.read_csv("../models_metrics/model_1_metrics.csv")
+
+```
+
+```{python}
+pd.read_csv("../models_metrics/model_2_metrics.csv")
+
+
+```
+
+Можем заметить, что разница несущетвенная
+
+
+# Лонгрид
+
+В прошлом отчеты мы заметили, что класс Лонгрид плохо классифицируется, а именно модель путает его с классом "Видео". Я немного посмотрел глазками на тексты Лонгрид, но это ничего не дало и я решил развиваться в каком-то другом направлении, в надежде, что эта проблема пофиксится.
+
+# Баланс классов
+
+```{python}
+df = pd.read_csv("../data/practice_cleaned.csv")
+df.Категория.value_counts()
+```
+
+Мы имеем дело с несбаллансированными классами. Во-первых оставим только первые 4, так как остальных уж совсем мало. У меня было неколько идей, как побороться с дисбаланом классов
+
+1) Формировать батчи для обучения так, чтоб в них классы были предтавлены равномерно
+
+2) Взять какую-нибудь loss чувтвительный к дисбалансу, например просто накинуть веса на крос энтрапию
+
+3) аугментация малопредставленных классов
+
+Я сфокусироваля на первых 2 пуктах
+
+Для начала я реализовал оба пункта и получил следующее:
+
+```{python}
+pd.read_csv("../models_metrics\model_3_imbalaced_metrics.csv")
+
+```
+
+```{python}
+img = Image.open('../models_metrics\model_3_imbalaced_heatmap.png')
+img
+```
+
+Заметим, что метрики стали хуже. Но по cm видно, что мы стали лучше классифицировать Лонгрид, но хуже Видео и ДЗ. Далее я подумал, что возможно мы лишком сильно уперлись в идею диссбалана классов и оставил сначала только фичу с батчами, а потом только с лоссом, получилоь следующее:
+
+Батчи
+
+```{python}
+pd.read_csv("../models_metrics\model_3_imbalaced_batch_metrics.csv")
+
+```
+
+```{python}
+img = Image.open('../models_metrics\model_3_imbalaced_batch_heatmap.png')
+img
+```
+
+Лосс
+
+```{python}
+pd.read_csv("../models_metrics\model_3_imbalaced_loss_metrics.csv")
+
+```
+
+```{python}
+img = Image.open('../models_metrics\model_3_imbalaced_loss_heatmap.png')
+img
+```
+
+
+## Выводы
+
+Базовая обработка не дала выиграша, но возможно в сочетании с другими модификациями или при использовании более продвинутых методов даст результат.
+
+С помощью сбалансированного формирования батчей и лосса с весами мы научилиь лучше классифицировать малопредтавленные классы, но метрики по вему датаету просели. Возможно надо лучше настоить веса, я брал просто обратно пропорициональные количетву представителей класса. 
+
+## планы
+
+1) Надо попробывать rubert-tiny-2
+
+2) Подумать над более продвинутой обработкой текстов: пунктуация, ссылки, английский. Наша модель работает только с русскими текстами, поэтому можно подумать, что делать с английским языком
+
+3) У меня вроде нормально заработал lightning, он у меня написан, надо будет только добавить туда фичи из этого отчета
+
+4) попробывать аугментацию текстов
+
+

@@ -1,13 +1,9 @@
-# Ignore everything in this directory
-*
-# Except this file
-!.gitignore
-# And except this
-!README.md
-!pyproject.toml
-!pixi.toml
-!pixi.lock
-!.pre-commit-config.yaml
+/.pixi
+/src
+pre-commit-config.yaml
 
-!/reports/
-!/models_metrics/
+
+notebooks/*
+!notebooks/1_comment_classifier.ipynb
+!notebooks/2_comment_classifier.ipynb
+!notebooks/comment_classifier_lightning.ipynb
