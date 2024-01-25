@@ -18,6 +18,10 @@ execute:
 jupyter: python3
 ---
 
+## Imports
+
+Импортируем библиотеки
+
 ```{python}
 import os
 import sys
@@ -56,6 +60,8 @@ MODEL_ID = 1
 TEST_SIZE = 0.2
 VAL_SIZE = 0.2
 ```
+
+## Data load and processing
 
 Загрузим данные
 
@@ -124,7 +130,7 @@ class CustomDataset(torch.utils.data.Dataset):
        
 ```
 
-## Подготовка модели и ее Обучение
+## Model preparation and training
 
 Я пытался организовать обучение с помощью фреймворков от `huggingface` и `PyTorch Lightning`, но они почему-то обучаются гораздо дольше, чем приведенная ниже реализация на голом торче
 
@@ -231,20 +237,20 @@ tokenizer_path = 'cointegrated/rubert-tiny'
 
 bert_tiny = BertClassifier(model_path, tokenizer_path, train, epochs=4)
 tokenizer = BertTokenizer.from_pretrained(tokenizer_path)
-bert_tiny.preparation()
+# bert_tiny.preparation()
 ```
 
 Обучение Модели
 
 ```{python}
-bert_tiny.fit()
+# bert_tiny.fit()
 ```
 
-## Валидация
+## Validation
 
 ```{python}
-test_dataset = CustomDataset(test, tokenizer)
-test_dataloader = DataLoader(test_dataset, batch_size=32)
+# test_dataset = CustomDataset(test, tokenizer)
+# test_dataloader = DataLoader(test_dataset, batch_size=32)
 
 def pred_by_logits(logits: torch.Tensor) -> np.ndarray:
         """Helper function for predictions calculating.
@@ -274,39 +280,52 @@ def predict(test_dataloader):
     preds = np.apply_along_axis(pred_by_logits, 1, preds_logits)
     return preds, targets
 
-preds, targets = predict(test_dataloader)
+# preds, targets = predict(test_dataloader)
 ```
 
 Основные метрики класификации и confusion_matrix
 
 ```{python}
-cr = classification_report(targets, preds, target_names=CLASSES, output_dict=True)
-cr = pd.DataFrame(cr).T
-os.makedirs(f'..\models_metrics', exist_ok=True)
-os.makedirs(f'..\models_metrics\model_{MODEL_ID}', exist_ok=True)
-cr.to_csv(f"..\models_metrics\model_{MODEL_ID}\classification_report.csv", index=False)
-print(cr)
+# cr = classification_report(targets, preds, target_names=CLASSES, output_dict=True)
+# cr = pd.DataFrame(cr).T
+# os.makedirs(f'..\models_metrics', exist_ok=True)
+# os.makedirs(f'..\models_metrics\model_{MODEL_ID}', exist_ok=True)
+# cr.to_csv(f"..\models_metrics\model_{MODEL_ID}\classification_report.csv", index=False)
+# print(cr)
 ```
 
 ```{python}
-x, y = CLASSES, list(reversed(CLASSES))
+# x, y = CLASSES, list(reversed(CLASSES))
 
-cm = confusion_matrix(targets, preds)
-cm_display = ConfusionMatrixDisplay(confusion_matrix =cm, display_labels=CLASSES)
+# cm = confusion_matrix(targets, preds)
+# cm_display = ConfusionMatrixDisplay(confusion_matrix =cm, display_labels=CLASSES)
 
 
-cm_display.plot()
-os.makedirs(f'../models_metrics/model_{MODEL_ID}', exist_ok=True)
-np.save(f"../models_metrics/model_{MODEL_ID}/confusion_matrix", cm)
-plt.savefig(f"../models_metrics/model_{MODEL_ID}/model_{MODEL_ID}_cm.png")
-plt.show()
+# cm_display.plot()
+# os.makedirs(f'../models_metrics/model_{MODEL_ID}', exist_ok=True)
+# np.save(f"../models_metrics/model_{MODEL_ID}/confusion_matrix", cm)
+# plt.savefig(f"../models_metrics/model_{MODEL_ID}/model_{MODEL_ID}_cm.png")
+# plt.show()
 ```
 
-## Выводы
+Матрица ошибок классицикации
 
-Из метрик можно сделать вывод, что мы плохо классифицируем класс "Лонгрид", причем вязано не только с тем, что представителей этого класса в обучаещей выборке было относительно мало, так как категорию "Тест" мы класификацируем лучше, хотя предтавителей этого класса еще меньше. Из confusion_matrix видно, что маленькое значение метрик связано с тем, что маша модель путает "Лонгрид" и "Видео"
+```{python}
+from IPython.display import Image
+Image(filename='../models_metrics/model_1_heatmap.png') 
+```
 
-## Планы
+Основные метрики класификации
+
+```{python}
+pd.read_csv("../models_metrics/model_1_metrics.csv")
+```
+
+## Conclusion
+
+Из значений метрик можно сделать вывод, что мы плохо классифицируем класс "Лонгрид", причем связано это не только с тем, что представителей этого класса в обучающей выборке было относительно мало, так как категорию "Тест" мы класификацируем лучше, хотя предтавителей этого класса еще меньше. Из confusion_matrix видно, что маленькое значение метрик связано с тем, что маша модель путает "Лонгрид" и "Видео"
+
+## Plans
 
 Во-первых надо попытаться разобраться с тем, что наша модель класификацируеет "Лонгрид" как "Видео"
 
