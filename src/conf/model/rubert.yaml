@@ -1,0 +1,5 @@
+padding: max_length
+max_length: 512
+tokenizer_name: cointegrated/rubert-tiny2
+pretrained_model_name_or_path: cointegrated/rubert-tiny2
+problem_type: single_label_classification

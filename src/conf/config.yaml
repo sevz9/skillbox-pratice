@@ -1,0 +1,9 @@
+defaults:
+  - preprocessing: rubert
+  - training: rubert
+  - model: rubert
+
+test_size: 0.2
+val_size: 0.2
+per_device_test_batch_size: 16
+MODEL_ID: hydra_test
