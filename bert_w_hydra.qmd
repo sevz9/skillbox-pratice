@@ -1,0 +1,69 @@
+---
+title: Класификация комментариев пользователей
+format:
+  html:
+    page-layout: full # Тип расположения контента на странице
+    code-fold: true # Сворачивание кода в отдельные блоки
+    code-summary: Show the code # Действие со свернутыми блоками кода
+    self-contained: true
+    anchor-sections: true
+    smooth-scroll: true
+    toc: true # Добавить содержание
+    toc-depth: 4 # Максимальная глубина вложений в содержании
+    toc-title: Содержание # Заголовок содержания
+    toc-location: left # Местоположение содержания
+execute:
+  enabled: true
+  keep-ipynb: true
+jupyter: python3
+---
+
+```{python}
+import lightning as L
+import numpy as np
+import torch
+
+from src.config import compose_config
+from sklearn.metrics import f1_score                  
+from tqdm import tqdm
+
+from datamodule import Datamodule
+from lit import Lit
+from utils import get_score
+```
+
+
+```{python}
+cfg = compose_config()
+```
+
+```{python}
+datamodule = Datamodule(cfg)
+    
+lit_module = Lit(
+    cfg
+)
+```
+
+```{python}
+trainer = L.Trainer(
+    accelerator=cfg['training']['accelerator'],
+    max_epochs=cfg['training']['num_train_epochs'], 
+)
+```
+
+```{python}
+print('START FITTING')
+trainer.fit(
+    model=lit_module,
+    datamodule=datamodule,
+)
+```
+
+```{python}
+score = get_score(datamodule, lit_module)
+print(f"SCORE: {score}")
+```
+
+
+
