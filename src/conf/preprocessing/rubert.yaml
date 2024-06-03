@@ -1,3 +1,3 @@
-_target_: transformers.AutoModelForSequenceClassification.from_pretrained
-_convert_: object
-small_classes: ["Качество материалов", "Интерфейс платформы", "Общение с куратором"]
+padding: max_length
+max_length: 512
+tokenizer_name: cointegrated/rubert-tiny2

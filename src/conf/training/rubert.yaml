@@ -3,13 +3,11 @@ output_dir: category_classification
 evaluation_strategy: epoch
 save_strategy: epoch
 learning_rate: 2e-5
-per_device_train_batch_size: 8
-per_device_val_batch_size: 8
+per_device_train_batch_size: 180
 per_device_eval_batch_size: ${training.per_device_train_batch_size}
-num_train_epochs: 1
+num_train_epochs: 3
 weight_decay: 0.01
 load_best_model_at_end: True
 metric_for_best_model: f1
 fp16: True
-batch_size: 84
-accelerator: "gpu"
+report_to: "none"
