@@ -1,9 +1,0 @@
-/.pixi
-/src
-pre-commit-config.yaml
-
-
-notebooks/*
-!notebooks/1_comment_classifier.ipynb
-!notebooks/2_comment_classifier.ipynb
-!notebooks/comment_classifier_lightning.ipynb

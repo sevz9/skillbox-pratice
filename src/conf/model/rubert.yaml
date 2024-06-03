@@ -1,0 +1,4 @@
+_target_: transformers.AutoModelForSequenceClassification.from_pretrained
+_convert_: object
+pretrained_model_name_or_path: cointegrated/rubert-tiny2
+problem_type: single_label_classification

@@ -1,0 +1,12 @@
+defaults:
+  - preprocessing: rubert
+  - training: rubert
+  - model: rubert
+
+test_size: 0.2
+val_size: 0.2
+batch_size: 16
+num_workers: 1
+MODEL_ID: hydra_test
+data_path: C:\Users\vsevo\MKN\skillbox_nlp-vsevolod-lavrov\data\practice_cleaned.csv
+
